@@ -21,7 +21,7 @@ class S3Interface(object):
         if content_type:
             k.set_metadata('Content-Type', content_type)
         # noinspection PyTypeChecker
-        return k.generate_url(expires_in=None, query_auth=False)
+        return k.generate_url(expires_in=0, query_auth=False)
 
     def read_string(self, file_name):
         k = self._construct_key(file_name)

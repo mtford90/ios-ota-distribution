@@ -52,13 +52,14 @@ class OTADistribution(object):
         if not release_notes_data:
             release_notes_data = self.default_release_notes
         html = config.EMAIL.format(release_notes_data=release_notes_data,
-                                   manifest_url=itms_url)
+                                   itms_url=itms_url)
         version = 'Mosayc ' + self.version
-        email = BaseEmail(from_email=self.send_address,
-                          to_emails=config.TESTERS,
-                          message=html,
-                          subject=version)
-        email.send()
+        email = BaseEmail(api_key=config.MANDRILL_API_KEY)
+        email.send(from_email=self.send_address,
+                   from_name='Mosayc Team',
+                   to_emails=config.TESTERS,
+                   html=html,
+                   subject=version)
         if not email.success:
             print 'Email failed: %s' % email.result
 
