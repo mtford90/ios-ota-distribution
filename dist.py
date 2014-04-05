@@ -1,4 +1,7 @@
 import plistlib
+from shutil import copyfile
+import shutil
+import jinja2
 import config
 import os
 
@@ -16,11 +19,11 @@ class OTADistribution(object):
     default_release_notes = '<ul><li>Bug fixes & stability</li></ul>'
     send_address = 'team@mosayc.co.uk'
 
-    def __init__(self, ipa_file_path, version, release_notes_file=None):
+    def __init__(self, ipa_file_path, version, release_notes_html):
         super(OTADistribution, self).__init__()
         self.version = version
-        self.release_notes_file = release_notes_file
         self.ipa_file_path = ipa_file_path
+        self.release_notes_html = release_notes_html
 
     def _save_file(self, name, location):
         with open(location) as f:
@@ -65,15 +68,11 @@ class OTADistribution(object):
             print 'Email failed: %s' % email.result
 
     def distribute(self):
-        release_notes_data = None
-        if self.release_notes_file:
-            with open(self.release_notes_file) as f:
-                release_notes_data = f.read()
         ipa_file_name = 'mosayc.%s.ipa' % self.version
         ipa_url = self._save_file(location=self.ipa_file_path, name=ipa_file_name)
         manifest_url = self._construct_manifest(ipa_url)
         itms_url = self._construct_itms_url(manifest_url)
-        self._send_emails(itms_url, release_notes_data)
+        self._send_emails(itms_url, self.release_notes_html)
 
 
 def configure_options():
@@ -83,17 +82,17 @@ def configure_options():
                       help="version of release e.g. 0.12, if new build then sets version. if resend, then sends latest"
                            " build with that version",
                       metavar="VERSION", default=None)
-    parser.add_option("-f", "--release-notes-file", action="store", type="string", dest="release_notes_file_path",
-                      default=None, help="file path for html file used for release notes", metavar="FILE")
     return parser
 
+working_dir = '/Users/mtford/Playground/mosayc/Mosayc/'
 
 def _exec(cmd):
     print 'Executing ' + cmd
     return os.system(cmd)
 
 
-def _build(working_dir):
+def _build():
+    os.chdir(working_dir)
     cmd = "xcodebuild " \
           "-workspace {workspace} " \
           "-scheme {scheme} " \
@@ -115,6 +114,7 @@ def _build(working_dir):
 
 
 def _ipa():
+    os.chdir(working_dir)
     cmd = "/usr/bin/xcrun " \
           "-sdk {sdk} " \
           "PackageApplication " \
@@ -136,6 +136,32 @@ def _ipa():
     return _exec(cmd)
 
 
+def create_mosayc_config():
+    os.chdir(working_dir + 'Mosayc/Config')
+    copyfile('MosaycConfig.h', 'MosaycConfig.h.bkp')
+    with open('MosaycConfig.h.jinja2', 'r') as mosayc_config_jinja2:
+        template = jinja2.Template(mosayc_config_jinja2.read())
+        with open('MosaycConfig.h', 'w') as mosayc_config_h:
+            mosayc_config_h.write(template.render(env='PROD'))
+
+
+def restore_mosayc_config():
+    os.chdir(working_dir + 'Mosayc/Config')
+    try:
+        copyfile('MosaycConfig.h.bkp', 'MosaycConfig.h')
+    except IOError, e:
+        print 'WARNING: Unable to restore backup: %s' % e
+
+
+def clean_up():
+    restore_mosayc_config()
+
+
+def _exit(status):
+    clean_up()
+    exit(status)
+
+
 def main():
     parser = configure_options()
     (options, args) = parser.parse_args()
@@ -143,22 +169,27 @@ def main():
         parser.error('No version passed')
     # if not len(args):
     #     parser.error('Need to pass directory where Mosayc.xcworkspace resides')
-    working_dir = '/Users/mtford/Playground/mosayc/Mosayc/'
-    os.chdir(working_dir)
-    build_status = _build(working_dir)
+    create_mosayc_config()
+
+    build_status = _build()
     if not build_status == 0:
         print 'Build failed'
-        exit(build_status)
+        _exit(build_status)
     ipa_status = _ipa()
     if not ipa_status == 0:
         print 'Archive failed'
-        exit(ipa_status)
+        _exit(ipa_status)
     ipa_file = '/Users/mtford/Playground/mosayc/Mosayc/buildHistory/Mosayc.ipa'
+    try:
+        # noinspection PyUnresolvedReferences
+        release_notes_html = config.RELEASE_NOTES_HTML
+    except AttributeError:
+        release_notes_html = None
     ota = OTADistribution(ipa_file_path=ipa_file,
                           version=options.version,
-                          release_notes_file=options.release_notes_file_path)
+                          release_notes_html=release_notes_html)
     ota.distribute()
-
+    clean_up()
 
 if __name__ == '__main__':
     main()
